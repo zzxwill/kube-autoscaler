@@ -1,0 +1,7 @@
+domain: oam.dev
+repo: github.com/zzxwill/oam-autoscaler-trait
+resources:
+- group: standard
+  kind: Autoscaler
+  version: v1alpha2
+version: "2"
