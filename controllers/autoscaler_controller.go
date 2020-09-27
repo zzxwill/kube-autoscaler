@@ -20,9 +20,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"k8s.io/client-go/util/homedir"
 
 	kedatype "github.com/kedacore/keda/api/v1alpha1"
 
@@ -58,12 +61,15 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	if err := r.Get(ctx, req.NamespacedName, &scaler); err != nil {
 		log.Error(err, "Could not find Autoscaler resource")
 	}
-	// minReplicas := scaler.Spec.MinReplicas
+	minReplicas := scaler.Spec.MinReplicas
 	maxReplicas := scaler.Spec.MaxReplicas
 	triggers := scaler.Spec.Triggers
+	name := scaler.Name
 
 	var kubeConfig *string
-	kubeConfig = flag.String("kubeconfig", "/Users/zhouzhengxi/.kube/config", "kubeconfig file")
+	if home := homedir.HomeDir(); home != "" {
+		kubeConfig = flag.String("kubeConfig", filepath.Join(home, ".kube", "config"), "kubeConfig file")
+	}
 	flag.Parse()
 
 	config, err := clientcmd.BuildConfigFromFlags("", *kubeConfig)
@@ -83,6 +89,7 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 		Name: "poc",
 	}
 
+	var kedaTriggers []kedatype.ScaleTriggers
 	for _, t := range triggers {
 		if t.Type == v1alpha1.CronType && t.Enabled == true {
 			triggerCondition := t.Condition.CronTypeCondition
@@ -90,7 +97,7 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 			startAt := triggerCondition.StartAt
 			duration := triggerCondition.Duration
 			var err error
-			_, err = time.Parse("12:01", startAt)
+			_, err = time.Parse("08:15", startAt)
 			if err != nil {
 				log.Error(err, "startAt is not in the right format, like `12:01`", "startAt", startAt)
 				return util.ReconcileWaitResult, err
@@ -131,8 +138,10 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 
 			days := triggerCondition.Days
 			var dayNo []int
-			var kedaTriggers []kedatype.ScaleTriggers
+
 			var i = 0
+
+			// TODO(@zzxwill) On Mac, it's Sunday when i == 0, need check on Linux
 			for _, d := range days {
 				for i < 7 {
 					if strings.EqualFold(time.Weekday(i).String(), d) {
@@ -142,9 +151,11 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 					i += 1
 				}
 			}
+
 			for _, n := range dayNo {
 				kedaTrigger := kedatype.ScaleTriggers{
 					Type: "cron",
+					Name: name,
 					Metadata: map[string]string{
 						"timezone":        timezone,
 						"start":           fmt.Sprintf("%d %d * * %d", startMinute, startHour, n),
@@ -156,23 +167,29 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 				kedaTriggers = append(kedaTriggers, kedaTrigger)
 			}
 
-			scaleObj := kedatype.ScaledObject{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "ScaledObject",
-					APIVersion: "keda.k8s.io/v1alpha1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name: t.Name,
-				},
-				Spec: kedatype.ScaledObjectSpec{
-					ScaleTargetRef:  &scaleTarget,
-					MaxReplicaCount: maxReplicas,
-					Triggers:        kedaTriggers,
-				},
-			}
-			kedaClient.ScaledObjects("default").Create(ctx, &scaleObj, metav1.CreateOptions{})
 		}
 	}
+	scaleObj := kedatype.ScaledObject{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ScaledObject",
+			APIVersion: "keda.k8s.io/v1alpha1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: req.NamespacedName.Namespace,
+		},
+		Spec: kedatype.ScaledObjectSpec{
+			ScaleTargetRef:  &scaleTarget,
+			MinReplicaCount: minReplicas,
+			MaxReplicaCount: maxReplicas,
+			Triggers:        kedaTriggers,
+		},
+	}
+	if obj, err := kedaClient.ScaledObjects("default").Create(ctx, &scaleObj, metav1.CreateOptions{}); err != nil {
+		log.Error(err, "failed to create KEDA ScaledObj", "ScaledObject", obj)
+		return util.ReconcileWaitResult, err
+	}
+
 	return ctrl.Result{}, nil
 }
 

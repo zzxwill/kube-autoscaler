@@ -70,10 +70,10 @@ type CronTypeCondition struct {
 // TriggerCondition set the condition when to trigger scaling
 type TriggerCondition struct {
 	// DefaultCondition is the condition for resource types, like `cpu/memory/storage/ephemeral-storage`
-	DefaultCondition *DefaultCondition `json:",inline,omitempty"`
+	*DefaultCondition `json:",inline,omitempty"`
 
 	// CronTypeCondition is the condition for Cron type scaling, `cron`
-	CronTypeCondition *CronTypeCondition `json:",inline,omitempty"`
+	*CronTypeCondition `json:",inline,omitempty"`
 }
 
 // Trigger defines the trigger of Autoscaler
