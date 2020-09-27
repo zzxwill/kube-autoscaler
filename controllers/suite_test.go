@@ -30,7 +30,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	standardv1alpha2 "github.com/zzxwill/oam-autoscaler-trait/api/v1alpha2"
+	standardv1alpha1 "github.com/zzxwill/oam-autoscaler-trait/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -62,7 +62,7 @@ var _ = BeforeSuite(func(done Done) {
 	Expect(err).ToNot(HaveOccurred())
 	Expect(cfg).ToNot(BeNil())
 
-	err = standardv1alpha2.AddToScheme(scheme.Scheme)
+	err = standardv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

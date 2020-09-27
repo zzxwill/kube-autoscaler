@@ -26,7 +26,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	standardv1alpha2 "github.com/zzxwill/oam-autoscaler-trait/api/v1alpha2"
+	standardv1alpha1 "github.com/zzxwill/oam-autoscaler-trait/api/v1alpha1"
 	"github.com/zzxwill/oam-autoscaler-trait/controllers"
 	// +kubebuilder:scaffold:imports
 )
@@ -39,7 +39,7 @@ var (
 func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 
-	_ = standardv1alpha2.AddToScheme(scheme)
+	_ = standardv1alpha1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 }
 
