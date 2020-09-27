@@ -25,12 +25,13 @@ import (
 	"strings"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"k8s.io/client-go/util/homedir"
 
 	kedatype "github.com/kedacore/keda/api/v1alpha1"
 
 	kedav1alpha1 "github.com/kedacore/keda/pkg/generated/clientset/versioned/typed/keda/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/go-logr/logr"
@@ -40,6 +41,7 @@ import (
 
 	"github.com/crossplane/oam-kubernetes-runtime/pkg/oam/util"
 	"github.com/zzxwill/oam-autoscaler-trait/api/v1alpha1"
+	restclient "k8s.io/client-go/rest"
 )
 
 // AutoscalerReconciler reconciles a Autoscaler object
@@ -58,13 +60,10 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 
 	// your logic here
 	var scaler v1alpha1.Autoscaler
+
 	if err := r.Get(ctx, req.NamespacedName, &scaler); err != nil {
 		log.Error(err, "Could not find Autoscaler resource")
 	}
-	minReplicas := scaler.Spec.MinReplicas
-	maxReplicas := scaler.Spec.MaxReplicas
-	triggers := scaler.Spec.Triggers
-	name := scaler.Name
 
 	var kubeConfig *string
 	if home := homedir.HomeDir(); home != "" {
@@ -78,22 +77,34 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 		return util.ReconcileWaitResult, err
 	}
 
+	ctx = context.TODO()
+	namespace := req.NamespacedName.Namespace
+	minReplicas := scaler.Spec.MinReplicas
+	maxReplicas := scaler.Spec.MaxReplicas
+	triggers := scaler.Spec.Triggers
+	scalerName := scaler.Name
+
+	return assembleKEDATrigger(namespace, scalerName, minReplicas, maxReplicas, triggers, config, ctx, log)
+}
+
+func (r *AutoscalerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&v1alpha1.Autoscaler{}).
+		Complete(r)
+}
+
+func assembleKEDATrigger(namespace string, scalerName string, minReplicas *int32, maxReplicas *int32,
+	triggers []v1alpha1.Trigger, config *restclient.Config, ctx context.Context, log logr.Logger) (ctrl.Result, error) {
 	kedaClient, err := kedav1alpha1.NewForConfig(config)
 	if err != nil {
 		log.Error(err, "failed to initiate a KEDA client", "config", config)
 		return util.ReconcileWaitResult, err
 	}
-	ctx = context.TODO()
-
-	scaleTarget := kedatype.ScaleTarget{
-		Name: "poc",
-	}
 
 	var kedaTriggers []kedatype.ScaleTriggers
 	for _, t := range triggers {
-		if t.Type == v1alpha1.CronType && t.Enabled == true {
+		if t.Type == v1alpha1.CronType {
 			triggerCondition := t.Condition.CronTypeCondition
-
 			startAt := triggerCondition.StartAt
 			duration := triggerCondition.Duration
 			var err error
@@ -155,7 +166,7 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 			for _, n := range dayNo {
 				kedaTrigger := kedatype.ScaleTriggers{
 					Type: "cron",
-					Name: name,
+					Name: t.Name,
 					Metadata: map[string]string{
 						"timezone":        timezone,
 						"start":           fmt.Sprintf("%d %d * * %d", startMinute, startHour, n),
@@ -163,20 +174,24 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 						"desiredReplicas": strconv.Itoa(replicas),
 					},
 				}
-
 				kedaTriggers = append(kedaTriggers, kedaTrigger)
 			}
-
 		}
 	}
+
+	scaleTarget := kedatype.ScaleTarget{
+		// TODO(@zzxwill) Needs to automatically identify the target object by OAM controller
+		Name: "poc",
+	}
+
 	scaleObj := kedatype.ScaledObject{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ScaledObject",
 			APIVersion: "keda.k8s.io/v1alpha1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: req.NamespacedName.Namespace,
+			Name:      scalerName,
+			Namespace: namespace,
 		},
 		Spec: kedatype.ScaledObjectSpec{
 			ScaleTargetRef:  &scaleTarget,
@@ -189,12 +204,5 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 		log.Error(err, "failed to create KEDA ScaledObj", "ScaledObject", obj)
 		return util.ReconcileWaitResult, err
 	}
-
 	return ctrl.Result{}, nil
-}
-
-func (r *AutoscalerReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.Autoscaler{}).
-		Complete(r)
 }

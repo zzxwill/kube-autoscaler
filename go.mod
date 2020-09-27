@@ -5,6 +5,8 @@ go 1.13
 require (
 	github.com/crossplane/oam-kubernetes-runtime v0.1.0
 	github.com/go-logr/logr v0.1.0 // use the version due to issue https://github.com/kubernetes-sigs/controller-runtime/issues/1033
+	github.com/golang/gddo v0.0.0-20190419222130-af0f2af80721
+	github.com/inconshreveable/log15 v0.0.0-20200109203555-b30bc20e4fd1 // indirect
 	github.com/kedacore/keda v1.5.1
 	github.com/onsi/ginkgo v1.14.1
 	github.com/onsi/gomega v1.10.2
