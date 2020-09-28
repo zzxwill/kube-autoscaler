@@ -93,9 +93,6 @@ type Trigger struct {
 
 // AutoscalerSpec defines the desired state of Autoscaler
 type AutoscalerSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
 	// MinReplicas is the minimal replicas
 	// +optional
 	MinReplicas *int32 `json:"minReplicas,omitempty"`
@@ -106,6 +103,18 @@ type AutoscalerSpec struct {
 
 	// Triggers lists all triggers
 	Triggers []Trigger `json:"triggers"`
+
+	// TargetWorkload specify the workload which is about to be scaled
+	TargetWorkload TargetWorkload `json:"targetWorkload,omitempty"`
+}
+
+// TargetWorkload holds the a reference to the scale target Object
+type TargetWorkload struct {
+	Name string `json:"name"`
+	// +optional
+	APIVersion string `json:"apiVersion,omitempty"`
+	// +optional
+	Kind string `json:"kind,omitempty"`
 }
 
 // AutoscalerStatus defines the observed state of Autoscaler

@@ -18,20 +18,28 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/crossplane/crossplane-runtime/pkg/event"
+	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/client-go/util/homedir"
 
-	kedatype "github.com/kedacore/keda/api/v1alpha1"
+	kedav1alpha1 "github.com/kedacore/keda/api/v1alpha1"
 
-	kedav1alpha1 "github.com/kedacore/keda/pkg/generated/clientset/versioned/typed/keda/v1alpha1"
+	kedatype "github.com/kedacore/keda/pkg/generated/clientset/versioned/typed/keda/v1alpha1"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/go-logr/logr"
@@ -39,109 +47,127 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/crossplane/oam-kubernetes-runtime/pkg/oam/util"
 	"github.com/zzxwill/oam-autoscaler-trait/api/v1alpha1"
 	restclient "k8s.io/client-go/rest"
 )
+
+const (
+	SpecWarningTargetWorkloadNotSet = "Spec.targetWorkload is not set"
+	SpecWarningStartAtTimeFormat    = "startAt is not in the right format, which should be like `12:01`"
+)
+
+var (
+	scaledObjectKind       = reflect.TypeOf(kedav1alpha1.ScaledObject{}).Name()
+	scaledObjectAPIVersion = "keda.k8s.io/v1alpha1"
+)
+
+// ReconcileWaitResult is the time to wait between reconciliation.
+var ReconcileWaitResult = reconcile.Result{RequeueAfter: 30 * time.Second}
 
 // AutoscalerReconciler reconciles a Autoscaler object
 type AutoscalerReconciler struct {
 	client.Client
 	Log    logr.Logger
 	Scheme *runtime.Scheme
+	record event.Recorder
+	config *restclient.Config
+	ctx    context.Context
 }
 
 // +kubebuilder:rbac:groups=standard.oam.dev,resources=autoscalers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=standard.oam.dev,resources=autoscalers/status,verbs=get;update;patch
-
 func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx := context.Background()
 	log := r.Log.WithValues("autoscaler", req.NamespacedName)
+	log.Info("Reconciling Autoscaler...")
 
-	// your logic here
 	var scaler v1alpha1.Autoscaler
-
-	if err := r.Get(ctx, req.NamespacedName, &scaler); err != nil {
-		log.Error(err, "Could not find Autoscaler resource")
+	if err := r.Get(r.ctx, req.NamespacedName, &scaler); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Autoscaler is deleted")
+		}
+		return ReconcileWaitResult, client.IgnoreNotFound(err)
 	}
+	log.Info("retrieved trait Autoscaler", "APIVersion", scaler.APIVersion, "Kind", scaler.Kind)
 
-	var kubeConfig *string
-	if home := homedir.HomeDir(); home != "" {
-		kubeConfig = flag.String("kubeConfig", filepath.Join(home, ".kube", "config"), "kubeConfig file")
-	}
-	flag.Parse()
+	// find ApplicationConfiguration to record the event
+	// comment it as I don't want Autoscaler to know it's in OAM context
+	//eventObj, err := util.LocateParentAppConfig(ctx, r.Client, &scaler)
+	//if err != nil {
+	//	log.Error(err, "failed to locate ApplicationConfiguration", "AutoScaler", scaler.Name)
+	//}
 
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeConfig)
-	if err != nil {
-		log.Error(err, "failed to build config", "kubeConfig", kubeConfig)
-		return util.ReconcileWaitResult, err
-	}
-
-	ctx = context.TODO()
 	namespace := req.NamespacedName.Namespace
-	minReplicas := scaler.Spec.MinReplicas
-	maxReplicas := scaler.Spec.MaxReplicas
-	triggers := scaler.Spec.Triggers
-	scalerName := scaler.Name
-
-	return assembleKEDATrigger(namespace, scalerName, minReplicas, maxReplicas, triggers, config, ctx, log)
+	return r.scaleByKEDA(scaler, namespace, log)
 }
 
 func (r *AutoscalerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := r.buildConfig(); err != nil {
+		return err
+	}
+	r.ctx = context.Background()
+	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor("Autoscaler")).
+		WithAnnotations("controller", "Autoscaler")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Autoscaler{}).
 		Complete(r)
 }
 
-func assembleKEDATrigger(namespace string, scalerName string, minReplicas *int32, maxReplicas *int32,
-	triggers []v1alpha1.Trigger, config *restclient.Config, ctx context.Context, log logr.Logger) (ctrl.Result, error) {
-	kedaClient, err := kedav1alpha1.NewForConfig(config)
+func (r *AutoscalerReconciler) scaleByKEDA(scaler v1alpha1.Autoscaler, namespace string, log logr.Logger) (ctrl.Result, error) {
+	config := r.config
+	kedaClient, err := kedatype.NewForConfig(config)
 	if err != nil {
 		log.Error(err, "failed to initiate a KEDA client", "config", config)
-		return util.ReconcileWaitResult, err
+		return ReconcileWaitResult, err
 	}
 
-	var kedaTriggers []kedatype.ScaleTriggers
+	minReplicas := scaler.Spec.MinReplicas
+	maxReplicas := scaler.Spec.MaxReplicas
+	triggers := scaler.Spec.Triggers
+	scalerName := scaler.Name
+	targetWorkload := scaler.Spec.TargetWorkload
+
+	var kedaTriggers []kedav1alpha1.ScaleTriggers
 	for _, t := range triggers {
 		if t.Type == v1alpha1.CronType {
+			if targetWorkload.Name == "" {
+				err := errors.New(SpecWarningTargetWorkloadNotSet)
+				log.Error(err, "")
+				r.record.Event(&scaler, event.Warning(SpecWarningTargetWorkloadNotSet, err))
+				return ReconcileWaitResult, err
+			}
+
 			triggerCondition := t.Condition.CronTypeCondition
 			startAt := triggerCondition.StartAt
 			duration := triggerCondition.Duration
 			var err error
-			_, err = time.Parse("08:15", startAt)
+			startTime, err := time.Parse("15:04", startAt)
 			if err != nil {
-				log.Error(err, "startAt is not in the right format, like `12:01`", "startAt", startAt)
-				return util.ReconcileWaitResult, err
+				log.Error(err, SpecWarningStartAtTimeFormat, startAt)
+				r.record.Event(&scaler, event.Warning(SpecWarningStartAtTimeFormat, err))
+				return ReconcileWaitResult, err
 			}
-			splitTime := strings.Split(startAt, ":")
 			var startHour, startMinute, durationHour int
-			if startHour, err = strconv.Atoi(splitTime[0]); err != nil {
-				log.Error(err, "failed to convert hour of startAT to int")
-				return util.ReconcileWaitResult, err
-			}
-			if startMinute, err = strconv.Atoi(splitTime[1]); err != nil {
-				log.Error(err, "failed to convert minute of startAT to int")
-				return util.ReconcileWaitResult, err
-			}
+			startHour = startTime.Hour()
+			startMinute = startTime.Minute()
 			if !strings.HasSuffix(duration, "h") {
 				log.Error(err, "currently only hours of duration is supported.", "duration", duration)
-				return util.ReconcileWaitResult, err
+				return ReconcileWaitResult, err
 			}
 
 			splitDuration := strings.Split(duration, "h")
 			if len(splitDuration) != 2 {
 				log.Error(err, "duration hour is not in the right format, like `12h`.", "duration", duration)
-				return util.ReconcileWaitResult, err
+				return ReconcileWaitResult, err
 			}
 			if durationHour, err = strconv.Atoi(splitDuration[0]); err != nil {
 				log.Error(err, "duration hour is not in the right format, like `12h`.", "duration", duration)
-				return util.ReconcileWaitResult, err
+				return ReconcileWaitResult, err
 			}
 
 			endHour := durationHour + startHour
 			if endHour >= 24 {
 				log.Error(err, "the sum of the hour of startAt and duration hour has to be less than 24 hours.", "startAt", startAt, "duration", duration)
-				return util.ReconcileWaitResult, err
+				return ReconcileWaitResult, err
 			}
 			replicas := triggerCondition.Replicas
 
@@ -164,8 +190,8 @@ func assembleKEDATrigger(namespace string, scalerName string, minReplicas *int32
 			}
 
 			for _, n := range dayNo {
-				kedaTrigger := kedatype.ScaleTriggers{
-					Type: "cron",
+				kedaTrigger := kedav1alpha1.ScaleTriggers{
+					Type: string(t.Type),
 					Name: t.Name,
 					Metadata: map[string]string{
 						"timezone":        timezone,
@@ -179,30 +205,53 @@ func assembleKEDATrigger(namespace string, scalerName string, minReplicas *int32
 		}
 	}
 
-	scaleTarget := kedatype.ScaleTarget{
-		// TODO(@zzxwill) Needs to automatically identify the target object by OAM controller
-		Name: "poc",
+	scaleTarget := kedav1alpha1.ScaleTarget{
+		Name: targetWorkload.Name,
 	}
 
-	scaleObj := kedatype.ScaledObject{
+	scaleObj := kedav1alpha1.ScaledObject{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "ScaledObject",
-			APIVersion: "keda.k8s.io/v1alpha1",
+			Kind:       scaledObjectKind,
+			APIVersion: scaledObjectAPIVersion,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      scalerName,
 			Namespace: namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion:         scaler.APIVersion,
+					Kind:               scaler.Kind,
+					UID:                scaler.GetUID(),
+					Name:               scalerName,
+					Controller:         pointer.BoolPtr(true),
+					BlockOwnerDeletion: pointer.BoolPtr(true),
+				},
+			},
 		},
-		Spec: kedatype.ScaledObjectSpec{
+		Spec: kedav1alpha1.ScaledObjectSpec{
 			ScaleTargetRef:  &scaleTarget,
 			MinReplicaCount: minReplicas,
 			MaxReplicaCount: maxReplicas,
 			Triggers:        kedaTriggers,
 		},
 	}
-	if obj, err := kedaClient.ScaledObjects("default").Create(ctx, &scaleObj, metav1.CreateOptions{}); err != nil {
+	if obj, err := kedaClient.ScaledObjects("default").Create(r.ctx, &scaleObj, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		log.Error(err, "failed to create KEDA ScaledObj", "ScaledObject", obj)
-		return util.ReconcileWaitResult, err
+		return ReconcileWaitResult, err
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *AutoscalerReconciler) buildConfig() error {
+	var kubeConfig *string
+	if home := homedir.HomeDir(); home != "" {
+		kubeConfig = flag.String("kubeConfig", filepath.Join(home, ".kube", "config"), "kubeConfig file")
+	}
+	flag.Parse()
+	config, err := clientcmd.BuildConfigFromFlags("", *kubeConfig)
+	if err != nil {
+		return err
+	}
+	r.config = config
+	return nil
 }

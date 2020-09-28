@@ -42,6 +42,19 @@ spec:
               description: MinReplicas is the minimal replicas
               format: int32
               type: integer
+            targetWorkload:
+              description: TargetWorkload specify the workload which is about to be
+                scaled
+              properties:
+                apiVersion:
+                  type: string
+                kind:
+                  type: string
+                name:
+                  type: string
+              required:
+              - name
+              type: object
             triggers:
               description: Triggers lists all triggers
               items:
