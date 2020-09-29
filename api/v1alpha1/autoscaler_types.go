@@ -20,19 +20,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-type TriggerType string
-
-const (
-	// cpuType    TriggerType = "cpu"
-	MemoryType TriggerType = "memory"
-	CronType   TriggerType = "cron"
-)
 
 // Protocol defines network protocols supported for things like container ports.
 type Protocol string
+
+// TriggerType defines the type of trigger
+type TriggerType string
 
 // +kubebuilder:object:root=true
 
@@ -47,24 +41,24 @@ type Autoscaler struct {
 
 type DefaultCondition struct {
 	// Target is the threshold value to the metric
-	Target int `json:"target,omitempty"`
+	Target *int32 `json:"target,omitempty"`
 }
 
 type CronTypeCondition struct {
 	// StartAt is the time when the scaler starts, in format `"HHMM"` for example, "08:00"
-	StartAt string `json:"startAt"`
+	StartAt string `json:"startAt,omitempty"`
 
 	// Duration means how long the target scaling will keep, after the time of duration, the scaling will stop
-	Duration string `json:"duration"`
+	Duration string `json:"duration,omitempty"`
 
 	// Days means in which days the condition will take effect
 	Days []string `json:"days,omitempty"`
 
 	// Replicas is the expected replicas
-	Replicas int `json:"replicas"`
+	Replicas int `json:"replicas,omitempty"`
 
 	// Timezone defines the time zone, default to the timezone of the Kubernetes cluster
-	Timezone string `json:"timezone"`
+	Timezone string `json:"timezone,omitempty"`
 }
 
 // TriggerCondition set the condition when to trigger scaling

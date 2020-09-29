@@ -82,16 +82,12 @@ spec:
                         type: string
                       target:
                         description: Target is the threshold value to the metric
+                        format: int32
                         type: integer
                       timezone:
                         description: Timezone defines the time zone, default to the
                           timezone of the Kubernetes cluster
                         type: string
-                    required:
-                    - duration
-                    - replicas
-                    - startAt
-                    - timezone
                     type: object
                   enabled:
                     description: Enabled marks whether the trigger immediately. Defaults

@@ -81,9 +81,6 @@ example-scaler   apps/v1.Deployment   php-apache        cron                    
 example-scaler   apps/v1.Deployment   php-apache        cron                        Unknown   Unknown   0s
 example-scaler   apps/v1.Deployment   php-apache        cron                        True      Unknown   0s
 example-scaler   apps/v1.Deployment   php-apache        cron                        True      False     0s
-
-
-
 example-scaler   apps/v1.Deployment   php-apache        cron                        True      False     60s
 example-scaler   apps/v1.Deployment   php-apache        cron                        True      True      60s
 ```
