@@ -13,7 +13,7 @@ import (
 	"errors"
 	"github.com/go-logr/logr"
 	kedatype "github.com/kedacore/keda/pkg/generated/clientset/versioned/typed/keda/v1alpha1"
-	"github.com/zzxwill/oam-autoscaler-trait/api/v1alpha1"
+	"github.com/zzxwill/kube-autoscaler/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	"strings"
@@ -49,7 +49,7 @@ func (r *AutoscalerReconciler) scaleByKEDA(scaler v1alpha1.Autoscaler, namespace
 
 			triggerCondition := t.Condition.CronTypeCondition
 			startAt := triggerCondition.StartAt
-			if startAt == ""{
+			if startAt == "" {
 				return errors.New("spec.triggers.condition.startAt: Required value")
 			}
 			duration := triggerCondition.Duration
@@ -165,5 +165,11 @@ func (r *AutoscalerReconciler) scaleByKEDA(scaler v1alpha1.Autoscaler, namespace
 		log.Error(err, "failed to create KEDA ScaledObj", "ScaledObject", obj)
 		return err
 	}
+
+	if obj, err := kedaClient.ScaledObjects(namespace).Update(r.ctx, &scaleObj, metav1.UpdateOptions{}); err != nil {
+		log.Error(err, "failed to create KEDA ScaledObj", "ScaledObject", obj)
+		return err
+	}
+
 	return nil
 }

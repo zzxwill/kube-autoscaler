@@ -26,8 +26,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	standardv1alpha1 "github.com/zzxwill/oam-autoscaler-trait/api/v1alpha1"
-	"github.com/zzxwill/oam-autoscaler-trait/controllers"
+	standardv1alpha1 "github.com/zzxwill/kube-autoscaler/api/v1alpha1"
+	"github.com/zzxwill/kube-autoscaler/controllers"
 	// +kubebuilder:scaffold:imports
 )
 

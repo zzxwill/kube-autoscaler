@@ -39,7 +39,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/zzxwill/oam-autoscaler-trait/api/v1alpha1"
+	"github.com/zzxwill/kube-autoscaler/api/v1alpha1"
 	restclient "k8s.io/client-go/rest"
 )
 
@@ -89,6 +89,9 @@ func (r *AutoscalerReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	//}
 
 	namespace := req.NamespacedName.Namespace
+
+	// TODO(zzxwill) merge metrics from two target HPAs and deploy all metrics in one HPA
+
 	if err := r.scaleByHPA(scaler, namespace, log); err != nil {
 		return ReconcileWaitResult, err
 	}
@@ -111,8 +114,6 @@ func (r *AutoscalerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.Autoscaler{}).
 		Complete(r)
 }
-
-
 
 func (r *AutoscalerReconciler) buildConfig() error {
 	var kubeConfig *string

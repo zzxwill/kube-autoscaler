@@ -8,10 +8,10 @@ spec:
   triggers:
     - name: weekend-cron
       enabled: true
-      type: cron                      # cron scaler. 表明 scaler 是 KEDA
+      type: cron                      # cron scaler. It indicates the scaler is KEDA
       condition:
-        startAt: "17:48"              # required. "HHMM"
-        duration: 2h                 # required. 持续时长；start hour + duration < 24
+        startAt: "14:45"              # required. "HHMM"
+        duration: 2h                 # required. start hour + duration < 24
         days: ["Monday", "Saturday"]  # optional. In which days the condition will take effect
         replicas: 4                   # optional.
         timezone: Asia/Shanghai       # optional. time zone

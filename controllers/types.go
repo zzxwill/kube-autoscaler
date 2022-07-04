@@ -1,6 +1,6 @@
 package controllers
 
-import "github.com/zzxwill/oam-autoscaler-trait/api/v1alpha1"
+import "github.com/zzxwill/kube-autoscaler/api/v1alpha1"
 
 const (
 	CPUType              v1alpha1.TriggerType = "cpu"

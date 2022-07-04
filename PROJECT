@@ -1,5 +1,5 @@
 domain: oam.dev
-repo: github.com/zzxwill/oam-autoscaler-trait
+repo: github.com/zzxwill/kube-autoscaler
 resources:
 - group: standard
   kind: Autoscaler

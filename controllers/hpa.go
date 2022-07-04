@@ -2,7 +2,7 @@ package controllers
 
 import (
 	"github.com/go-logr/logr"
-	"github.com/zzxwill/oam-autoscaler-trait/api/v1alpha1"
+	"github.com/zzxwill/kube-autoscaler/api/v1alpha1"
 	v1 "k8s.io/api/autoscaling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,19 +31,19 @@ func (r *AutoscalerReconciler) scaleByHPA(scaler v1alpha1.Autoscaler, namespace 
 			target := triggerCondition.Target
 
 			scaleTarget := v1.CrossVersionObjectReference{
-				Name: targetWorkload.Name,
+				Name:       targetWorkload.Name,
 				APIVersion: targetWorkload.APIVersion,
-				Kind: targetWorkload.Kind,
+				Kind:       targetWorkload.Kind,
 			}
 
 			scalerObj := v1.HorizontalPodAutoscaler{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: v1.SchemeGroupVersion.String(),
-					Kind: reflect.TypeOf(v1.HorizontalPodAutoscaler{}).Name(),
+					Kind:       reflect.TypeOf(v1.HorizontalPodAutoscaler{}).Name(),
 				},
-				ObjectMeta:metav1.ObjectMeta{
-					Name: scalerName,
-					Namespace:namespace,
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      scalerName,
+					Namespace: namespace,
 					OwnerReferences: []metav1.OwnerReference{
 						{
 							APIVersion:         scaler.APIVersion,
@@ -56,9 +56,9 @@ func (r *AutoscalerReconciler) scaleByHPA(scaler v1alpha1.Autoscaler, namespace 
 					},
 				},
 				Spec: v1.HorizontalPodAutoscalerSpec{
-					ScaleTargetRef:  scaleTarget,
-					MinReplicas: minReplicas,
-					MaxReplicas: maxReplicas,
+					ScaleTargetRef:                 scaleTarget,
+					MinReplicas:                    minReplicas,
+					MaxReplicas:                    maxReplicas,
 					TargetCPUUtilizationPercentage: target,
 				},
 			}
